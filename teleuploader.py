@@ -2,50 +2,59 @@ import os
 import requests
 import streamlit as st
 from pathlib import Path
-from dotenv import load_dotenv
+from datetime import datetime
 
-# -------------------------------------------------------------------
-# Streamlit & app configuration
-# -------------------------------------------------------------------
-# ⚠️ Do NOT set st.set_option("server.maxUploadSize") here
-# Set via CLI: --server.maxUploadSize=5000
-st.title("Advanced Streamlit Uploader → Telegram Bot (5 GB Limit)")
-st.write(
-    "Upload a file or provide a URL. Files up to 5 GB are saved locally. "
-    "Telegram only allows uploads ≤ 2 GB, so larger files will send as links instead."
+# ---------------------------
+# Streamlit page config
+# ---------------------------
+st.set_page_config(
+    page_title="Telegram Uploader Bot",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# -------------------------------------------------------------------
-# Load environment variables
-# -------------------------------------------------------------------
-load_dotenv()
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+st.title("📦 Advanced Telegram Uploader Bot")
+st.markdown(
+    """
+Upload files (≤ 2 GB) or provide a direct URL.  
+Files are saved locally and sent to your Telegram bot.
+"""
+)
 
-if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    st.warning("⚠️ Please set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in a .env file or environment variables.")
-    st.stop()
-
-# Telegram API endpoints
+# ---------------------------
+# Telegram bot configuration (private use)
+# ---------------------------
+TELEGRAM_BOT_TOKEN = "8432820657:AAHJTUIjxEuDEb647sZq8oYVUS5sdl23zdE"
+TELEGRAM_CHAT_ID = "1599595167"
 SEND_DOCUMENT_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument"
 SEND_MESSAGE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
-# Local upload directory
+# ---------------------------
+# Local storage setup
+# ---------------------------
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-# Telegram’s official file size limit for bots
-TELEGRAM_MAX_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB in bytes
+# Max file size in bytes (2 GB)
+MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024
 
-# -------------------------------------------------------------------
+# ---------------------------
 # Helper functions
-# -------------------------------------------------------------------
-def save_uploaded_file(streamlit_file, save_path: Path):
+# ---------------------------
+def human_size(num_bytes):
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if num_bytes < 1024.0:
+            return f"{num_bytes:3.1f}{unit}"
+        num_bytes /= 1024.0
+    return f"{num_bytes:.1f}PB"
+
+def save_uploaded_file(file_obj, save_path: Path):
     with open(save_path, "wb") as f:
-        f.write(streamlit_file.getbuffer())
+        f.write(file_obj.getbuffer())
     return save_path
 
-def download_url_to_file(url: str, save_path: Path):
+def download_file_from_url(url: str, save_path: Path):
     resp = requests.get(url, stream=True, timeout=60)
     resp.raise_for_status()
     with open(save_path, "wb") as f:
@@ -65,48 +74,41 @@ def send_message_to_telegram(text: str):
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
     return requests.post(SEND_MESSAGE_URL, data=data, timeout=60)
 
-def human_size(num_bytes):
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if num_bytes < 1024.0:
-            return f"{num_bytes:3.1f}{unit}"
-        num_bytes /= 1024.0
-    return f"{num_bytes:.1f}PB"
+# ---------------------------
+# Sidebar - Upload Options
+# ---------------------------
+st.sidebar.header("Upload Options")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload a file (≤ 2 GB)", accept_multiple_files=False
+)
+file_url = st.sidebar.text_input("Or provide a file URL")
+custom_name = st.sidebar.text_input("Optional filename override")
 
-# -------------------------------------------------------------------
-# UI: Upload or URL
-# -------------------------------------------------------------------
-uploaded_file = st.file_uploader("Choose a file to upload (≤ 5 GB)", accept_multiple_files=False)
-st.write("---")
-st.subheader("Or provide a direct file URL")
-file_url = st.text_input("File URL (http/https)")
-custom_name = st.text_input("Optional: Save as (filename.ext)")
-
-if st.button("Save and Send to Telegram"):
+# ---------------------------
+# Main Action
+# ---------------------------
+if st.sidebar.button("Upload & Send"):
     if not uploaded_file and not file_url:
         st.error("Please upload a file or provide a URL.")
     else:
         try:
-            # Determine filename and save
             if uploaded_file:
-                name = custom_name or uploaded_file.name
-                save_path = UPLOAD_DIR / name
+                filename = custom_name or uploaded_file.name
+                save_path = UPLOAD_DIR / filename
                 save_uploaded_file(uploaded_file, save_path)
-                st.success(f"Saved {name} locally.")
             else:
-                url_name = custom_name or file_url.split("/")[-1].split("?")[0] or "downloaded_file"
-                save_path = UPLOAD_DIR / url_name
-                with st.spinner("Downloading file..."):
-                    download_url_to_file(file_url, save_path)
-                st.success(f"Downloaded {url_name} and saved locally.")
+                filename_from_url = custom_name or file_url.split("/")[-1].split("?")[0] or "downloaded_file"
+                save_path = UPLOAD_DIR / filename_from_url
+                with st.spinner("Downloading file from URL..."):
+                    download_file_from_url(file_url, save_path)
 
             file_size = save_path.stat().st_size
-            st.write(f"File size: {human_size(file_size)}")
+            st.success(f"Saved {save_path.name} ({human_size(file_size)}) locally.")
 
-            if file_size > TELEGRAM_MAX_SIZE:
-                st.warning("File exceeds Telegram’s 2 GB limit. Sending info message instead.")
-                msg = f"📦 File saved locally: **{save_path.name}** ({human_size(file_size)})"
+            if file_size > MAX_UPLOAD_SIZE_BYTES:
+                st.warning(f"File exceeds Telegram’s 2 GB limit. Sending info message instead.")
+                msg = f"📦 File saved locally: {save_path.name} ({human_size(file_size)})"
                 send_message_to_telegram(msg)
-                st.info("File info message sent to Telegram.")
             else:
                 with st.spinner("Sending file to Telegram..."):
                     resp = send_file_to_telegram(save_path)
@@ -117,15 +119,29 @@ if st.button("Save and Send to Telegram"):
         except Exception as e:
             st.exception(e)
 
-# -------------------------------------------------------------------
-# List saved files
-# -------------------------------------------------------------------
-st.write("---")
-st.subheader("Saved Files (local uploads/ directory)")
+# ---------------------------
+# Display uploaded files
+# ---------------------------
+st.markdown("---")
+st.subheader("📂 Uploaded Files (Local Storage)")
 
-files = sorted(UPLOAD_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+files = sorted(UPLOAD_DIR.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)
 if files:
     for f in files:
-        st.write(f"- {f.name} — {human_size(f.stat().st_size)}")
+        col1, col2, col3 = st.columns([3, 1, 1])
+        col1.write(f"{f.name} — {human_size(f.stat().st_size)} — {datetime.fromtimestamp(f.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')}")
+        with col2:
+            if st.button(f"Send {f.name}", key=f"send_{f.name}"):
+                try:
+                    resp = send_file_to_telegram(f)
+                    if resp.ok and resp.json().get("ok"):
+                        st.success(f"Sent {f.name} to Telegram!")
+                    else:
+                        st.error(f"Failed to send {f.name}: {resp.text}")
+                except Exception as e:
+                    st.error(str(e))
+        with col3:
+            with open(f, "rb") as fh:
+                st.download_button(f"Download", data=fh, file_name=f.name)
 else:
-    st.write("No files saved yet.")
+    st.write("No files uploaded yet.")
