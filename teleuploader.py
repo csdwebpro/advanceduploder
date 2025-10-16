@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 # -------------------------------------------------------------------
 # Streamlit & app configuration
 # -------------------------------------------------------------------
-st.set_option("server.maxUploadSize", 5000)  # Allow uploads up to 5 GB
+# ⚠️ Do NOT set st.set_option("server.maxUploadSize") here
+# Set via CLI: --server.maxUploadSize=5000
 st.title("Advanced Streamlit Uploader → Telegram Bot (5 GB Limit)")
 st.write(
     "Upload a file or provide a URL. Files up to 5 GB are saved locally. "
@@ -18,7 +19,6 @@ st.write(
 # Load environment variables
 # -------------------------------------------------------------------
 load_dotenv()
-
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
@@ -41,13 +41,11 @@ TELEGRAM_MAX_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB in bytes
 # Helper functions
 # -------------------------------------------------------------------
 def save_uploaded_file(streamlit_file, save_path: Path):
-    """Save uploaded Streamlit file to disk."""
     with open(save_path, "wb") as f:
         f.write(streamlit_file.getbuffer())
     return save_path
 
 def download_url_to_file(url: str, save_path: Path):
-    """Download file from a URL to local disk."""
     resp = requests.get(url, stream=True, timeout=60)
     resp.raise_for_status()
     with open(save_path, "wb") as f:
@@ -57,7 +55,6 @@ def download_url_to_file(url: str, save_path: Path):
     return save_path
 
 def send_file_to_telegram(file_path: Path):
-    """Send file to Telegram chat."""
     with open(file_path, "rb") as f:
         files = {"document": (file_path.name, f)}
         data = {"chat_id": TELEGRAM_CHAT_ID}
@@ -65,12 +62,10 @@ def send_file_to_telegram(file_path: Path):
     return resp
 
 def send_message_to_telegram(text: str):
-    """Send text message to Telegram chat."""
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
     return requests.post(SEND_MESSAGE_URL, data=data, timeout=60)
 
 def human_size(num_bytes):
-    """Human-readable file size string."""
     for unit in ["B", "KB", "MB", "GB", "TB"]:
         if num_bytes < 1024.0:
             return f"{num_bytes:3.1f}{unit}"
